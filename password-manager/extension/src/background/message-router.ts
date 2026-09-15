@@ -1,13 +1,23 @@
-import type { BackgroundRequest, VaultStatusResponse, AccessTokenResponse } from "./messages";
+import type {
+  BackgroundRequest,
+  VaultStatusResponse,
+  AccessTokenResponse,
+  AutofillMatchesResponse,
+  AutofillCredentialResponse,
+} from "./messages";
 import { unlockVaultSession, lockVaultSession, isVaultUnlocked, getAccessToken, setAccessToken } from "./vault-session";
 import { pullChanges, connectRealtimeSync, disconnectRealtimeSync, registerPeriodicSync } from "./sync-engine";
+import { queryAutofillMatches, getAutofillCredential, saveAutofillCredential } from "./autofill-service";
 
 /**
  * Every handler here only ever runs for messages from this extension's own
- * popup/options pages — `sender.id` is checked against our own extension id
- * before any message is acted on, and this extension does not declare
- * `externally_connectable`, so no other extension or web page can reach this
- * listener at all. See invariant #9.
+ * contexts — the popup/options pages, or a content script this extension
+ * itself registered (see extension/src/content-scripts/). `sender.id` is
+ * checked against our own extension id before any message is acted on, and
+ * this extension does not declare `externally_connectable`, so a web page's
+ * own JS cannot reach this listener at all — only our content script can,
+ * and only when it decides to (never by relaying page-supplied instructions
+ * unvalidated). See invariant #9.
  */
 export function registerMessageRouter(): void {
   chrome.runtime.onMessage.addListener((message: BackgroundRequest, sender, sendResponse) => {
@@ -42,6 +52,14 @@ async function handleMessage(message: BackgroundRequest): Promise<unknown> {
     case "VAULT_SYNC_NOW":
       await pullChanges();
       return { synced: true };
+    case "AUTOFILL_QUERY_MATCHES":
+      return { matches: await queryAutofillMatches(message.origin) } satisfies AutofillMatchesResponse;
+    case "AUTOFILL_GET_CREDENTIAL": {
+      const credential = await getAutofillCredential(message.itemId);
+      return credential satisfies AutofillCredentialResponse | null;
+    }
+    case "AUTOFILL_SAVE_CREDENTIAL":
+      return { saved: await saveAutofillCredential(message.origin, message.title, message.username, message.password) };
     default:
       return null;
   }

@@ -38,6 +38,12 @@ export async function getCursor(): Promise<string | null> {
   return (await readCache()).cursor;
 }
 
+export async function getItemById(itemId: string): Promise<VaultItemDto | null> {
+  const cache = await readCache();
+  const item = cache.items[itemId];
+  return item && !item.deletedAt ? item : null;
+}
+
 /** Merges a sync page into the cache: upserts changed items, drops tombstones. */
 export async function mergeSyncPage(items: VaultItemDto[], cursor: string): Promise<void> {
   const cache = await readCache();

@@ -1,7 +1,8 @@
 /**
- * Message protocol between the popup/options UI and the background service
- * worker. Every handler in message-router.ts re-validates `sender.id` before
- * acting (invariant #9) — this file only defines the message shapes.
+ * Message protocol between the popup/options UI (or content scripts, for the
+ * AUTOFILL_* messages) and the background service worker. Every handler in
+ * message-router.ts re-validates `sender.id` before acting (invariant #9) —
+ * this file only defines the message shapes.
  */
 export type BackgroundRequest =
   | { type: "VAULT_UNLOCK"; vaultKeyRawB64: string; privateKeyPkcs8B64: string; accessToken: string }
@@ -9,7 +10,10 @@ export type BackgroundRequest =
   | { type: "VAULT_STATUS" }
   | { type: "ACCESS_TOKEN_GET" }
   | { type: "ACCESS_TOKEN_SET"; accessToken: string }
-  | { type: "VAULT_SYNC_NOW" };
+  | { type: "VAULT_SYNC_NOW" }
+  | { type: "AUTOFILL_QUERY_MATCHES"; origin: string }
+  | { type: "AUTOFILL_GET_CREDENTIAL"; itemId: string }
+  | { type: "AUTOFILL_SAVE_CREDENTIAL"; origin: string; title: string; username: string; password: string };
 
 export interface VaultStatusResponse {
   unlocked: boolean;
@@ -17,6 +21,21 @@ export interface VaultStatusResponse {
 
 export interface AccessTokenResponse {
   accessToken: string | null;
+}
+
+export interface AutofillMatch {
+  itemId: string;
+  title: string;
+  username: string;
+}
+
+export interface AutofillMatchesResponse {
+  matches: AutofillMatch[];
+}
+
+export interface AutofillCredentialResponse {
+  username: string;
+  password: string;
 }
 
 export async function sendToBackground<T>(message: BackgroundRequest): Promise<T> {
