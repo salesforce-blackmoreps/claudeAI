@@ -1,12 +1,13 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { TeamsPanel } from "./TeamsPanel";
 
-// Phase 5/6 replace this with org management and billing settings UI.
+// Phase 6 adds billing settings here alongside team management.
 function OptionsApp() {
   return (
     <div style={{ padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <h1>Settings</h1>
-      <p>Scaffolding in progress.</p>
+      <TeamsPanel />
     </div>
   );
 }

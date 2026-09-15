@@ -2,14 +2,25 @@ import { useEffect, useState } from "react";
 import type { VaultItemDto } from "@password-manager/shared";
 import { sendToBackground } from "../../background/messages";
 import { getVaultKeyMaterial } from "../../background/vault-session";
-import { logout as apiLogout, createVaultItem, updateVaultItem, deleteVaultItem, getEntitlements, ApiError } from "../../lib/api-client";
+import {
+  logout as apiLogout,
+  createVaultItem,
+  updateVaultItem,
+  deleteVaultItem,
+  getEntitlements,
+  listSharedWithMe,
+  ApiError,
+} from "../../lib/api-client";
 import { withFreshAccessToken } from "../../lib/with-fresh-access-token";
 import { clearSession, loadSession } from "../../lib/storage/local-store";
 import { getCachedItems, upsertItem, removeItem } from "../../lib/storage/vault-cache";
-import { vaultKeyFromBase64, encryptItemFields, decryptItemFields } from "../../lib/crypto/item-crypto";
+import { vaultKeyFromBase64, encryptItemFields, decryptItemFields, decryptFieldsWithItemKey } from "../../lib/crypto/item-crypto";
+import { unwrapItemKeyFromSender } from "../../lib/crypto/share-wrap";
+import { base64ToBytes } from "../../lib/crypto/encoding";
 import type { LoginItemFields } from "../../lib/vault/item-fields";
 import { VaultItemForm } from "../components/VaultItemForm";
 import { VaultItemList, type DecryptedItem } from "../components/VaultItemList";
+import { ShareItemPanel } from "../components/ShareItemPanel";
 
 interface UnlockedProps {
   email: string;
@@ -17,10 +28,15 @@ interface UnlockedProps {
   onLoggedOut: () => void;
 }
 
-type FormState = { mode: "closed" } | { mode: "create" } | { mode: "edit"; entry: DecryptedItem };
+type FormState =
+  | { mode: "closed" }
+  | { mode: "create" }
+  | { mode: "edit"; entry: DecryptedItem }
+  | { mode: "share"; entry: DecryptedItem };
 
 export function Unlocked({ email, onLocked, onLoggedOut }: UnlockedProps) {
   const [entries, setEntries] = useState<DecryptedItem[] | null>(null);
+  const [sharedWithMe, setSharedWithMe] = useState<DecryptedItem[] | null>(null);
   const [usage, setUsage] = useState<{ current: number; max: number } | null>(null);
   const [form, setForm] = useState<FormState>({ mode: "closed" });
   const [busy, setBusy] = useState(false);
@@ -34,6 +50,28 @@ export function Unlocked({ email, onLocked, onLoggedOut }: UnlockedProps) {
     await sendToBackground({ type: "VAULT_SYNC_NOW" });
     await loadAndDecrypt();
     await loadUsage();
+    await loadSharedWithMe();
+  }
+
+  async function loadSharedWithMe() {
+    const material = await getVaultKeyMaterial();
+    if (!material) return;
+    try {
+      const shares = await withFreshAccessToken((token) => listSharedWithMe(token));
+      const privateKeyPkcs8 = base64ToBytes(material.privateKeyPkcs8B64);
+      const decrypted = await Promise.all(
+        shares
+          .filter((share) => share.vaultItem.type === "login")
+          .map(async (share) => {
+            const itemKey = await unwrapItemKeyFromSender(share.encryptedItemKeyForRecipient, privateKeyPkcs8);
+            const fields = await decryptFieldsWithItemKey<LoginItemFields>(itemKey, share.vaultItem.encryptedData);
+            return { item: share.vaultItem, fields };
+          }),
+      );
+      setSharedWithMe(decrypted);
+    } catch {
+      // Non-fatal — "shared with me" section just won't populate this refresh.
+    }
   }
 
   async function loadAndDecrypt() {
@@ -132,6 +170,10 @@ export function Unlocked({ email, onLocked, onLoggedOut }: UnlockedProps) {
     }
   }
 
+  if (form.mode === "share") {
+    return <ShareItemPanel item={form.entry.item} onClose={() => setForm({ mode: "closed" })} />;
+  }
+
   if (form.mode !== "closed") {
     return (
       <VaultItemForm
@@ -166,7 +208,22 @@ export function Unlocked({ email, onLocked, onLoggedOut }: UnlockedProps) {
           entries={entries}
           onEdit={(entry) => setForm({ mode: "edit", entry })}
           onDelete={handleDelete}
+          onShare={(entry) => setForm({ mode: "share", entry })}
         />
+      )}
+
+      {sharedWithMe && sharedWithMe.length > 0 && (
+        <div style={{ padding: "0 16px" }}>
+          <h2 style={{ fontSize: 13, color: "#666", margin: "8px 0 4px" }}>Shared with you</h2>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {sharedWithMe.map((entry) => (
+              <li key={entry.item.id} style={{ fontSize: 13, padding: "4px 0", borderBottom: "1px solid #eee" }}>
+                <div style={{ fontWeight: 600 }}>{entry.fields.title}</div>
+                <div style={{ color: "#666", fontSize: 12 }}>{entry.fields.username}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div style={{ padding: 16, display: "flex", gap: 8 }}>

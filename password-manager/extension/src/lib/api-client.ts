@@ -128,4 +128,118 @@ export function getEntitlements(accessToken: string): Promise<EntitlementsDto> {
   return request("/billing/entitlements", { headers: authHeaders(accessToken) });
 }
 
+export interface UserLookupResponse {
+  id: string;
+  publicKey: string;
+}
+
+export function lookupUserByEmail(accessToken: string, email: string): Promise<UserLookupResponse> {
+  return request(`/users/lookup?email=${encodeURIComponent(email)}`, { headers: authHeaders(accessToken) });
+}
+
+export interface ShareDto {
+  id: string;
+  vaultItemId: string;
+  recipientUserId: string;
+  encryptedItemKeyForRecipient: string;
+  role: "viewer" | "editor";
+  createdAt: string;
+  recipient: { id: string; email: string };
+}
+
+export function listShares(accessToken: string, itemId: string): Promise<ShareDto[]> {
+  return request(`/vault/items/${itemId}/shares`, { headers: authHeaders(accessToken) });
+}
+
+export function createShare(
+  accessToken: string,
+  itemId: string,
+  body: { recipientUserId: string; encryptedItemKeyForRecipient: string; role: "viewer" | "editor" },
+): Promise<ShareDto> {
+  return request(`/vault/items/${itemId}/shares`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(body),
+  });
+}
+
+export function revokeShare(accessToken: string, itemId: string, shareId: string): Promise<void> {
+  return request(`/vault/items/${itemId}/shares/${shareId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
+}
+
+export interface SharedWithMeEntry {
+  id: string;
+  vaultItemId: string;
+  encryptedItemKeyForRecipient: string;
+  role: "viewer" | "editor";
+  vaultItem: VaultItemDto;
+}
+
+export function listSharedWithMe(accessToken: string): Promise<SharedWithMeEntry[]> {
+  return request("/shares/shared-with-me", { headers: authHeaders(accessToken) });
+}
+
+export interface TeamDto {
+  id: string;
+  name: string;
+  ownerUserId: string;
+}
+
+export interface TeamMemberDto {
+  id: string;
+  teamId: string;
+  userId: string;
+  role: "owner" | "admin" | "member";
+  status: "pending" | "active" | "removed";
+  user: { id: string; email: string; publicKey: string };
+}
+
+export function createTeam(accessToken: string, name: string): Promise<TeamDto> {
+  return request("/teams", { method: "POST", headers: authHeaders(accessToken), body: JSON.stringify({ name }) });
+}
+
+export function getTeam(accessToken: string, teamId: string): Promise<{ team: TeamDto; members: TeamMemberDto[] }> {
+  return request(`/teams/${teamId}`, { headers: authHeaders(accessToken) });
+}
+
+export function inviteTeamMember(accessToken: string, teamId: string, email: string): Promise<TeamMemberDto> {
+  return request(`/teams/${teamId}/invites`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function acceptTeamInvite(accessToken: string, teamId: string): Promise<TeamMemberDto> {
+  return request(`/teams/${teamId}/accept`, { method: "POST", headers: authHeaders(accessToken) });
+}
+
+export function removeTeamMember(accessToken: string, teamId: string, userId: string): Promise<void> {
+  return request(`/teams/${teamId}/members/${userId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+
+export interface MyInviteDto {
+  id: string;
+  teamId: string;
+  team: { id: string; name: string };
+}
+
+export function listMyInvites(accessToken: string): Promise<MyInviteDto[]> {
+  return request("/teams/my-invites", { headers: authHeaders(accessToken) });
+}
+
+export interface MyTeamDto {
+  id: string;
+  teamId: string;
+  role: "owner" | "admin" | "member";
+  team: { id: string; name: string; ownerUserId: string };
+}
+
+export function listMyTeams(accessToken: string): Promise<MyTeamDto[]> {
+  return request("/teams/mine", { headers: authHeaders(accessToken) });
+}
+
 export { ApiError };

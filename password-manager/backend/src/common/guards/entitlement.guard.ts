@@ -22,3 +22,35 @@ export class ItemCreationEntitlementGuard implements CanActivate {
     }
   }
 }
+
+/** Applied to POST /vault/items/:id/shares — enforces the per-item share-recipient cap. */
+@Injectable()
+export class ShareCreationEntitlementGuard implements CanActivate {
+  constructor(private readonly entitlements: EntitlementsService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<AuthenticatedRequest & { params: { id: string } }>();
+    try {
+      await this.entitlements.assertCanShareItem(req.params.id);
+      return true;
+    } catch {
+      throw new ForbiddenException("Share limit reached for this item on your current plan. Upgrade to share with more people.");
+    }
+  }
+}
+
+/** Applied to POST /teams/:teamId/invites — enforces the team's member-count cap. */
+@Injectable()
+export class TeamInviteEntitlementGuard implements CanActivate {
+  constructor(private readonly entitlements: EntitlementsService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<AuthenticatedRequest & { params: { teamId: string } }>();
+    try {
+      await this.entitlements.assertCanInviteTeamMember(req.params.teamId);
+      return true;
+    } catch {
+      throw new ForbiddenException("Team member limit reached for your current plan. Upgrade to invite more members.");
+    }
+  }
+}
