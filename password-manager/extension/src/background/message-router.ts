@@ -1,5 +1,6 @@
 import type { BackgroundRequest, VaultStatusResponse, AccessTokenResponse } from "./messages";
 import { unlockVaultSession, lockVaultSession, isVaultUnlocked, getAccessToken, setAccessToken } from "./vault-session";
+import { pullChanges, connectRealtimeSync, disconnectRealtimeSync, registerPeriodicSync } from "./sync-engine";
 
 /**
  * Every handler here only ever runs for messages from this extension's own
@@ -23,9 +24,13 @@ async function handleMessage(message: BackgroundRequest): Promise<unknown> {
   switch (message.type) {
     case "VAULT_UNLOCK":
       await unlockVaultSession(message.vaultKeyRawB64, message.privateKeyPkcs8B64, message.accessToken);
+      registerPeriodicSync();
+      void connectRealtimeSync();
+      void pullChanges();
       return { unlocked: true } satisfies VaultStatusResponse;
     case "VAULT_LOCK":
       await lockVaultSession();
+      disconnectRealtimeSync();
       return { unlocked: false } satisfies VaultStatusResponse;
     case "VAULT_STATUS":
       return { unlocked: await isVaultUnlocked() } satisfies VaultStatusResponse;
@@ -34,6 +39,9 @@ async function handleMessage(message: BackgroundRequest): Promise<unknown> {
     case "ACCESS_TOKEN_SET":
       await setAccessToken(message.accessToken);
       return { accessToken: message.accessToken } satisfies AccessTokenResponse;
+    case "VAULT_SYNC_NOW":
+      await pullChanges();
+      return { synced: true };
     default:
       return null;
   }

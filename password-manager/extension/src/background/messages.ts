@@ -8,7 +8,8 @@ export type BackgroundRequest =
   | { type: "VAULT_LOCK" }
   | { type: "VAULT_STATUS" }
   | { type: "ACCESS_TOKEN_GET" }
-  | { type: "ACCESS_TOKEN_SET"; accessToken: string };
+  | { type: "ACCESS_TOKEN_SET"; accessToken: string }
+  | { type: "VAULT_SYNC_NOW" };
 
 export interface VaultStatusResponse {
   unlocked: boolean;

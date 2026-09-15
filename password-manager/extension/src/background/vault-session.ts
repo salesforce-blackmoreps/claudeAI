@@ -5,6 +5,11 @@
  * MV3 service worker can be evicted after ~30s idle and a bare variable would
  * be lost, forcing an unnecessary re-unlock on every eviction. See
  * docs/crypto-architecture.md and invariant #10.
+ *
+ * chrome.storage.session is readable directly from any trusted extension
+ * context (background, popup, options — not content scripts), so the popup
+ * calls the getters here directly rather than round-tripping through
+ * message-router.ts for every read.
  */
 const SESSION_KEY = "vault-session";
 const AUTO_LOCK_ALARM = "vault-auto-lock";
@@ -53,6 +58,14 @@ export async function setAccessToken(accessToken: string): Promise<void> {
   const session = result[SESSION_KEY] as StoredVaultSession | undefined;
   if (!session) return;
   await chrome.storage.session.set({ [SESSION_KEY]: { ...session, accessToken } });
+}
+
+/** Returns the raw (still base64-encoded) vault key material, or null if locked. */
+export async function getVaultKeyMaterial(): Promise<{ vaultKeyRawB64: string; privateKeyPkcs8B64: string } | null> {
+  const result = await chrome.storage.session.get(SESSION_KEY);
+  const session = result[SESSION_KEY] as StoredVaultSession | undefined;
+  if (!session) return null;
+  return { vaultKeyRawB64: session.vaultKeyRawB64, privateKeyPkcs8B64: session.privateKeyPkcs8B64 };
 }
 
 export function registerAutoLockAlarm(): void {

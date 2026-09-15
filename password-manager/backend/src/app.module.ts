@@ -7,6 +7,8 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./common/redis/redis.module";
 import { AuthModule } from "./auth/auth.module";
 import { DevicesModule } from "./devices/devices.module";
+import { EntitlementsModule } from "./entitlements/entitlements.module";
+import { VaultModule } from "./vault/vault.module";
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { DevicesModule } from "./devices/devices.module";
     RedisModule,
     AuthModule,
     DevicesModule,
+    EntitlementsModule,
+    VaultModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

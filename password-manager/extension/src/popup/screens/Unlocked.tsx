@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { VaultItemDto } from "@password-manager/shared";
 import { sendToBackground } from "../../background/messages";
-import { logout as apiLogout, ApiError } from "../../lib/api-client";
+import { getVaultKeyMaterial } from "../../background/vault-session";
+import { logout as apiLogout, createVaultItem, updateVaultItem, deleteVaultItem, getEntitlements, ApiError } from "../../lib/api-client";
+import { withFreshAccessToken } from "../../lib/with-fresh-access-token";
 import { clearSession, loadSession } from "../../lib/storage/local-store";
+import { getCachedItems, upsertItem, removeItem } from "../../lib/storage/vault-cache";
+import { vaultKeyFromBase64, encryptItemFields, decryptItemFields } from "../../lib/crypto/item-crypto";
+import type { LoginItemFields } from "../../lib/vault/item-fields";
+import { VaultItemForm } from "../components/VaultItemForm";
+import { VaultItemList, type DecryptedItem } from "../components/VaultItemList";
 
 interface UnlockedProps {
   email: string;
@@ -9,9 +17,97 @@ interface UnlockedProps {
   onLoggedOut: () => void;
 }
 
-// Phase 2 replaces this with the actual vault item list/CRUD UI.
+type FormState = { mode: "closed" } | { mode: "create" } | { mode: "edit"; entry: DecryptedItem };
+
 export function Unlocked({ email, onLocked, onLoggedOut }: UnlockedProps) {
+  const [entries, setEntries] = useState<DecryptedItem[] | null>(null);
+  const [usage, setUsage] = useState<{ current: number; max: number } | null>(null);
+  const [form, setForm] = useState<FormState>({ mode: "closed" });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void refreshAll();
+  }, []);
+
+  async function refreshAll() {
+    await sendToBackground({ type: "VAULT_SYNC_NOW" });
+    await loadAndDecrypt();
+    await loadUsage();
+  }
+
+  async function loadAndDecrypt() {
+    const material = await getVaultKeyMaterial();
+    if (!material) return;
+    const vaultKeyRaw = vaultKeyFromBase64(material.vaultKeyRawB64);
+    const items = await getCachedItems();
+    const decrypted = await Promise.all(
+      items
+        .filter((item) => item.type === "login")
+        .map(async (item) => ({
+          item,
+          fields: await decryptItemFields<LoginItemFields>(vaultKeyRaw, item.encryptedData, item.encryptedItemKey),
+        })),
+    );
+    setEntries(decrypted);
+  }
+
+  async function loadUsage() {
+    try {
+      const entitlements = await withFreshAccessToken((token) => getEntitlements(token));
+      setUsage({ current: entitlements.currentItemCount, max: entitlements.maxItemsPerUser });
+    } catch {
+      // Non-fatal — usage banner just won't show.
+    }
+  }
+
+  async function handleSave(fields: LoginItemFields) {
+    setBusy(true);
+    setError(null);
+    try {
+      const material = await getVaultKeyMaterial();
+      if (!material) throw new Error("Vault is locked");
+      const vaultKeyRaw = vaultKeyFromBase64(material.vaultKeyRawB64);
+      const envelope = await encryptItemFields(vaultKeyRaw, fields);
+
+      const saved = await withFreshAccessToken((token) => {
+        if (form.mode === "edit") {
+          return updateVaultItem(token, form.entry.item.id, { ...envelope, expectedRev: form.entry.item.rev });
+        }
+        return createVaultItem(token, { type: "login", ...envelope });
+      });
+
+      await upsertItem(saved as VaultItemDto);
+      setForm({ mode: "closed" });
+      await loadAndDecrypt();
+      await loadUsage();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setError("You've reached your plan's item limit. Upgrade to add more.");
+      } else if (err instanceof ApiError && err.status === 409) {
+        setError("This item changed elsewhere. Refreshing…");
+        await refreshAll();
+      } else {
+        setError("Could not save item.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(entry: DecryptedItem) {
+    setBusy(true);
+    try {
+      await withFreshAccessToken((token) => deleteVaultItem(token, entry.item.id));
+      await removeItem(entry.item.id);
+      await loadAndDecrypt();
+      await loadUsage();
+    } catch {
+      setError("Could not delete item.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleLock() {
     await sendToBackground({ type: "VAULT_LOCK" });
@@ -36,17 +132,51 @@ export function Unlocked({ email, onLocked, onLoggedOut }: UnlockedProps) {
     }
   }
 
+  if (form.mode !== "closed") {
+    return (
+      <VaultItemForm
+        initial={form.mode === "edit" ? form.entry.fields : undefined}
+        busy={busy}
+        onCancel={() => setForm({ mode: "closed" })}
+        onSubmit={handleSave}
+      />
+    );
+  }
+
   return (
-    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-      <h1 style={{ fontSize: 16, margin: 0 }}>Vault</h1>
-      <p style={{ fontSize: 12, color: "#666" }}>{email}</p>
-      <p style={{ fontSize: 13, color: "#666" }}>Vault item list coming in Phase 2.</p>
-      <button type="button" onClick={handleLock} disabled={busy}>
-        Lock
-      </button>
-      <button type="button" onClick={handleLogout} disabled={busy}>
-        Log out
-      </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ padding: "16px 16px 0" }}>
+        <h1 style={{ fontSize: 16, margin: 0 }}>Vault</h1>
+        <p style={{ fontSize: 12, color: "#666", margin: "2px 0" }}>{email}</p>
+        {usage && (
+          <p style={{ fontSize: 12, color: usage.current >= usage.max ? "crimson" : "#666" }}>
+            {usage.current}/{usage.max} items used
+          </p>
+        )}
+        {error && <p style={{ color: "crimson", fontSize: 13 }}>{error}</p>}
+        <button type="button" onClick={() => setForm({ mode: "create" })} disabled={busy || (usage ? usage.current >= usage.max : false)}>
+          + Add item
+        </button>
+      </div>
+
+      {entries === null ? (
+        <p style={{ padding: "0 16px", fontSize: 13, color: "#666" }}>Loading…</p>
+      ) : (
+        <VaultItemList
+          entries={entries}
+          onEdit={(entry) => setForm({ mode: "edit", entry })}
+          onDelete={handleDelete}
+        />
+      )}
+
+      <div style={{ padding: 16, display: "flex", gap: 8 }}>
+        <button type="button" onClick={handleLock} disabled={busy}>
+          Lock
+        </button>
+        <button type="button" onClick={handleLogout} disabled={busy}>
+          Log out
+        </button>
+      </div>
     </div>
   );
 }

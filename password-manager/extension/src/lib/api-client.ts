@@ -1,5 +1,6 @@
 import type {
   AuthSessionDto,
+  EntitlementsDto,
   KdfLookupResponseDto,
   LoginResponseDto,
   MfaEnrollResponseDto,
@@ -7,6 +8,8 @@ import type {
   SignupRequestDto,
   LoginRequestDto,
   MfaVerifyRequestDto,
+  VaultItemDto,
+  VaultSyncResponseDto,
 } from "@password-manager/shared";
 import { API_BASE_URL } from "./config";
 
@@ -76,6 +79,53 @@ export function confirmMfaEnrollment(accessToken: string, code: string): Promise
     headers: { Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({ code }),
   });
+}
+
+function authHeaders(accessToken: string): HeadersInit {
+  return { Authorization: `Bearer ${accessToken}` };
+}
+
+export function syncVault(accessToken: string, since: string | null): Promise<VaultSyncResponseDto> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : "";
+  return request(`/vault/sync${query}`, { headers: authHeaders(accessToken) });
+}
+
+export interface CreateVaultItemBody {
+  type: "login" | "passkey" | "note";
+  encryptedData: string;
+  encryptedItemKey: string;
+  folderId?: string;
+}
+
+export function createVaultItem(accessToken: string, body: CreateVaultItemBody): Promise<VaultItemDto> {
+  return request("/vault/items", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(body),
+  });
+}
+
+export interface UpdateVaultItemBody {
+  encryptedData: string;
+  encryptedItemKey: string;
+  folderId?: string;
+  expectedRev: number;
+}
+
+export function updateVaultItem(accessToken: string, id: string, body: UpdateVaultItemBody): Promise<VaultItemDto> {
+  return request(`/vault/items/${id}`, {
+    method: "PUT",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteVaultItem(accessToken: string, id: string): Promise<void> {
+  return request(`/vault/items/${id}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+
+export function getEntitlements(accessToken: string): Promise<EntitlementsDto> {
+  return request("/billing/entitlements", { headers: authHeaders(accessToken) });
 }
 
 export { ApiError };
