@@ -13,7 +13,24 @@ export type BackgroundRequest =
   | { type: "VAULT_SYNC_NOW" }
   | { type: "AUTOFILL_QUERY_MATCHES"; origin: string }
   | { type: "AUTOFILL_GET_CREDENTIAL"; itemId: string }
-  | { type: "AUTOFILL_SAVE_CREDENTIAL"; origin: string; title: string; username: string; password: string };
+  | { type: "AUTOFILL_SAVE_CREDENTIAL"; origin: string; title: string; username: string; password: string }
+  | {
+      type: "WEBAUTHN_CREATE";
+      origin: string;
+      rpId: string;
+      rpName: string;
+      userIdB64: string;
+      userName: string;
+      userDisplayName: string;
+      challengeB64: string;
+    }
+  | {
+      type: "WEBAUTHN_GET";
+      origin: string;
+      rpId: string;
+      challengeB64: string;
+      allowCredentialIdsB64: string[];
+    };
 
 export interface VaultStatusResponse {
   unlocked: boolean;

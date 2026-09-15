@@ -8,6 +8,7 @@ import type {
 import { unlockVaultSession, lockVaultSession, isVaultUnlocked, getAccessToken, setAccessToken } from "./vault-session";
 import { pullChanges, connectRealtimeSync, disconnectRealtimeSync, registerPeriodicSync } from "./sync-engine";
 import { queryAutofillMatches, getAutofillCredential, saveAutofillCredential } from "./autofill-service";
+import { handleCreateCeremony, handleGetCeremony } from "./webauthn/ceremony-handler";
 
 /**
  * Every handler here only ever runs for messages from this extension's own
@@ -25,7 +26,11 @@ export function registerMessageRouter(): void {
       return false;
     }
 
-    handleMessage(message).then(sendResponse);
+    handleMessage(message)
+      .then(sendResponse)
+      .catch((err: unknown) => {
+        sendResponse({ error: err instanceof Error ? err.message : String(err) });
+      });
     return true; // keep the message channel open for the async response
   });
 }
@@ -60,6 +65,23 @@ async function handleMessage(message: BackgroundRequest): Promise<unknown> {
     }
     case "AUTOFILL_SAVE_CREDENTIAL":
       return { saved: await saveAutofillCredential(message.origin, message.title, message.username, message.password) };
+    case "WEBAUTHN_CREATE":
+      return handleCreateCeremony({
+        origin: message.origin,
+        rpId: message.rpId,
+        rpName: message.rpName,
+        userIdB64: message.userIdB64,
+        userName: message.userName,
+        userDisplayName: message.userDisplayName,
+        challengeB64: message.challengeB64,
+      });
+    case "WEBAUTHN_GET":
+      return handleGetCeremony({
+        origin: message.origin,
+        rpId: message.rpId,
+        challengeB64: message.challengeB64,
+        allowCredentialIdsB64: message.allowCredentialIdsB64,
+      });
     default:
       return null;
   }
