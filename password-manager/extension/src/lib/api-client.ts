@@ -128,6 +128,26 @@ export function getEntitlements(accessToken: string): Promise<EntitlementsDto> {
   return request("/billing/entitlements", { headers: authHeaders(accessToken) });
 }
 
+export function createCheckoutSession(
+  accessToken: string,
+  teamId: string,
+  tier: "team_5" | "team_20" | "team_100",
+): Promise<{ url: string }> {
+  return request("/billing/checkout-session", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({ teamId, tier }),
+  });
+}
+
+export function createPortalSession(accessToken: string, teamId: string): Promise<{ url: string }> {
+  return request("/billing/portal-session", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify({ teamId }),
+  });
+}
+
 export interface UserLookupResponse {
   id: string;
   publicKey: string;

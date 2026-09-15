@@ -7,6 +7,8 @@ import {
   acceptTeamInvite,
   listMyInvites,
   listMyTeams,
+  createCheckoutSession,
+  createPortalSession,
   ApiError,
   type MyInviteDto,
   type MyTeamDto,
@@ -104,6 +106,16 @@ export function TeamsPanel() {
     });
   }
 
+  async function handleUpgrade(teamId: string, tier: "team_5" | "team_20" | "team_100") {
+    const result = await withToken((token) => createCheckoutSession(token, teamId, tier));
+    if (result) chrome.tabs.create({ url: result.url });
+  }
+
+  async function handleManageBilling(teamId: string) {
+    const result = await withToken((token) => createPortalSession(token, teamId));
+    if (result) chrome.tabs.create({ url: result.url });
+  }
+
   if (accessToken === undefined) return <p>Loading…</p>;
   if (accessToken === null) return <p>Unlock the extension popup first to manage teams.</p>;
 
@@ -151,18 +163,34 @@ export function TeamsPanel() {
                     ))}
                   </ul>
                   {(membership.role === "owner" || membership.role === "admin") && (
-                    <form onSubmit={(e) => handleInvite(e, membership.teamId)} style={{ display: "flex", gap: 4 }}>
-                      <input
-                        type="email"
-                        required
-                        placeholder="teammate@example.com"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                      />
-                      <button type="submit" disabled={busy}>
-                        Invite
-                      </button>
-                    </form>
+                    <>
+                      <form onSubmit={(e) => handleInvite(e, membership.teamId)} style={{ display: "flex", gap: 4 }}>
+                        <input
+                          type="email"
+                          required
+                          placeholder="teammate@example.com"
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
+                        />
+                        <button type="submit" disabled={busy}>
+                          Invite
+                        </button>
+                      </form>
+                      <div style={{ marginTop: 8, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <button type="button" disabled={busy} onClick={() => handleUpgrade(membership.teamId, "team_5")}>
+                          Upgrade: Team 5
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => handleUpgrade(membership.teamId, "team_20")}>
+                          Upgrade: Team 20
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => handleUpgrade(membership.teamId, "team_100")}>
+                          Upgrade: Team 100
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => handleManageBilling(membership.teamId)}>
+                          Manage billing
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

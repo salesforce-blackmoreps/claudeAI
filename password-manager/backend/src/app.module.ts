@@ -12,6 +12,7 @@ import { VaultModule } from "./vault/vault.module";
 import { TeamsModule } from "./teams/teams.module";
 import { SharingModule } from "./sharing/sharing.module";
 import { UsersModule } from "./users/users.module";
+import { BillingModule } from "./billing/billing.module";
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { UsersModule } from "./users/users.module";
     TeamsModule,
     SharingModule,
     UsersModule,
+    BillingModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
