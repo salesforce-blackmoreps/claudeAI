@@ -24,10 +24,11 @@ and distributes ciphertext and non-secret metadata only.
 | Server-side re-hash of auth value | Argon2id (independent parameters from client KDF) |
 
 All primitives are implemented via the browser's native `crypto.subtle` (WebCrypto)
-except Argon2id, for which WebCrypto has no native implementation — a single pinned
-WASM build is used client-side (exact version + subresource hash locked in
+except Argon2id, for which WebCrypto has no native implementation — the client uses
+the `hash-wasm` package's `argon2id()` (its WASM binary is embedded inline, so no
+separate asset fetch is needed), pinned by exact version + integrity hash in
 `package-lock.json`; any version bump requires an explicit review, per invariant #12
-in the plan).
+in the plan.
 
 ## Key hierarchy
 
