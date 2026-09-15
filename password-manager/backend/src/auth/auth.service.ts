@@ -16,10 +16,13 @@ import { DevicesService } from "../devices/devices.service";
 import { TokenService } from "./token.service";
 import { MfaService } from "./mfa.service";
 import { encryptServerSecret, decryptServerSecret } from "../common/crypto/server-secret-box";
+import { AuditLogService, AUDIT_EVENTS } from "../common/audit-log/audit-log.service";
 import type { SignupDto } from "./dto/signup.dto";
 import type { LoginDto } from "./dto/login.dto";
 
 const LOGIN_TICKET_TTL_SECONDS = 5 * 60;
+const LOGIN_LOCKOUT_THRESHOLD = 10;
+const LOGIN_LOCKOUT_WINDOW_SECONDS = 15 * 60;
 
 interface LoginTicketPayload {
   userId: string;
@@ -35,6 +38,7 @@ export class AuthService {
     private readonly devices: DevicesService,
     private readonly tokens: TokenService,
     private readonly mfa: MfaService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async signup(dto: SignupDto): Promise<AuthSessionDto> {
@@ -57,6 +61,8 @@ export class AuthService {
         encryptedPrivateKey: dto.encryptedPrivateKey,
       },
     });
+
+    await this.auditLog.record({ actorUserId: user.id, eventType: AUDIT_EVENTS.SIGNUP, targetId: user.id });
 
     return this.establishSession(user.id, dto.deviceName, dto.devicePlatform, {
       encryptedVaultKey: user.encryptedVaultKey,
@@ -84,10 +90,25 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<LoginResponseDto> {
+    const lockoutKey = this.loginLockoutKey(dto.email);
+    const failedAttempts = Number((await this.redis.get(lockoutKey)) ?? 0);
+    if (failedAttempts >= LOGIN_LOCKOUT_THRESHOLD) {
+      await this.auditLog.record({ eventType: AUDIT_EVENTS.LOGIN_LOCKED_OUT, metadata: { email: dto.email } });
+      throw new UnauthorizedException("Too many failed attempts. Please try again in 15 minutes.");
+    }
+
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user || !(await argon2.verify(user.masterPasswordHash, dto.masterPasswordHash))) {
+      await this.redis.set(lockoutKey, String(failedAttempts + 1), "EX", LOGIN_LOCKOUT_WINDOW_SECONDS);
+      await this.auditLog.record({
+        actorUserId: user?.id ?? null,
+        eventType: AUDIT_EVENTS.LOGIN_FAILED,
+        metadata: { email: dto.email },
+      });
       throw new UnauthorizedException("Invalid email or master password");
     }
+
+    await this.redis.del(lockoutKey);
 
     if (user.mfaEnabled) {
       const loginTicket = randomUUID();
@@ -105,6 +126,7 @@ export class AuthService {
       return { mfaRequired: true, loginTicket };
     }
 
+    await this.auditLog.record({ actorUserId: user.id, eventType: AUDIT_EVENTS.LOGIN_SUCCEEDED });
     return this.establishSession(user.id, dto.deviceName, dto.devicePlatform, {
       encryptedVaultKey: user.encryptedVaultKey,
       encryptedPrivateKey: user.encryptedPrivateKey,
@@ -132,6 +154,7 @@ export class AuthService {
     }
 
     await this.redis.del(this.loginTicketKey(loginTicket));
+    await this.auditLog.record({ actorUserId: user.id, eventType: AUDIT_EVENTS.LOGIN_SUCCEEDED, metadata: { mfa: true } });
     return this.establishSession(user.id, deviceName, devicePlatform, {
       encryptedVaultKey: user.encryptedVaultKey,
       encryptedPrivateKey: user.encryptedPrivateKey,
@@ -207,6 +230,10 @@ export class AuthService {
 
   private loginTicketKey(loginTicket: string): string {
     return `login-ticket:${loginTicket}`;
+  }
+
+  private loginLockoutKey(email: string): string {
+    return `login-lockout:${email.toLowerCase()}`;
   }
 }
 

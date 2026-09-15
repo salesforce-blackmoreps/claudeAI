@@ -20,7 +20,7 @@ describe("TeamsService authorization", () => {
   it("refuses to invite a member when the inviter is not an owner/admin", async () => {
     const prisma = makePrismaStub();
     prisma.teamMember.findUnique.mockResolvedValue({ role: "member", status: "active" });
-    const service = new TeamsService(prisma);
+    const service = new TeamsService(prisma, { record: jest.fn().mockResolvedValue(undefined) } as any);
 
     await expect(service.inviteMember("team-1", "inviter-1", "someone@example.com")).rejects.toThrow(ForbiddenException);
   });
@@ -29,7 +29,7 @@ describe("TeamsService authorization", () => {
     const prisma = makePrismaStub();
     prisma.teamMember.findUnique.mockResolvedValue({ role: "owner", status: "active" });
     prisma.user.findUnique.mockResolvedValue(null);
-    const service = new TeamsService(prisma);
+    const service = new TeamsService(prisma, { record: jest.fn().mockResolvedValue(undefined) } as any);
 
     await expect(service.inviteMember("team-1", "owner-1", "nobody@example.com")).rejects.toThrow(NotFoundException);
   });
@@ -39,7 +39,7 @@ describe("TeamsService authorization", () => {
     prisma.teamMember.findUnique
       .mockResolvedValueOnce({ role: "owner", status: "active" }) // actor permission check
       .mockResolvedValueOnce({ role: "owner", status: "active" }); // target lookup
-    const service = new TeamsService(prisma);
+    const service = new TeamsService(prisma, { record: jest.fn().mockResolvedValue(undefined) } as any);
 
     await expect(service.removeMember("team-1", "actor-1", "owner-user-id")).rejects.toThrow(ForbiddenException);
   });
@@ -47,7 +47,7 @@ describe("TeamsService authorization", () => {
   it("refuses to accept an invite that doesn't exist or isn't pending", async () => {
     const prisma = makePrismaStub();
     prisma.teamMember.findUnique.mockResolvedValue(null);
-    const service = new TeamsService(prisma);
+    const service = new TeamsService(prisma, { record: jest.fn().mockResolvedValue(undefined) } as any);
 
     await expect(service.acceptInvite("user-1", "team-1")).rejects.toThrow(NotFoundException);
   });

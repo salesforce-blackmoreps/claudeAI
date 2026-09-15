@@ -1,9 +1,13 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuditLogService, AUDIT_EVENTS } from "../common/audit-log/audit-log.service";
 
 @Injectable()
 export class TeamsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLog: AuditLogService,
+  ) {}
 
   async createTeam(ownerId: string, name: string) {
     return this.prisma.$transaction(async (tx) => {
@@ -40,15 +44,22 @@ export class TeamsService {
     if (existing && existing.status !== "removed") {
       throw new ConflictException("This person is already invited to or a member of this team.");
     }
-    if (existing) {
-      return this.prisma.teamMember.update({
-        where: { id: existing.id },
-        data: { status: "pending", invitedAt: new Date(), joinedAt: null },
-      });
-    }
-    return this.prisma.teamMember.create({
-      data: { teamId, userId: invitee.id, role: "member", status: "pending" },
+    const member = existing
+      ? await this.prisma.teamMember.update({
+          where: { id: existing.id },
+          data: { status: "pending", invitedAt: new Date(), joinedAt: null },
+        })
+      : await this.prisma.teamMember.create({
+          data: { teamId, userId: invitee.id, role: "member", status: "pending" },
+        });
+
+    await this.auditLog.record({
+      actorUserId: inviterId,
+      teamId,
+      eventType: AUDIT_EVENTS.TEAM_MEMBER_INVITED,
+      targetId: invitee.id,
     });
+    return member;
   }
 
   async acceptInvite(userId: string, teamId: string) {
@@ -71,6 +82,12 @@ export class TeamsService {
     if (target.role === "owner") throw new ForbiddenException("Cannot remove the team owner");
 
     await this.prisma.teamMember.update({ where: { id: target.id }, data: { status: "removed" } });
+    await this.auditLog.record({
+      actorUserId: actorId,
+      teamId,
+      eventType: AUDIT_EVENTS.TEAM_MEMBER_REMOVED,
+      targetId: targetUserId,
+    });
   }
 
   async listMyInvites(userId: string) {

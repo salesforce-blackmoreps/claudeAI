@@ -54,6 +54,7 @@ export class AuthController {
 
   @Post("mfa/confirm")
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   confirmMfa(@Req() req: AuthenticatedRequest, @Body() body: ConfirmMfaDto) {
     return this.auth.confirmMfaEnrollment(req.userId, body.code);
   }

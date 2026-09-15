@@ -4,6 +4,7 @@ import type { VaultItemDto, VaultSyncResponseDto } from "@password-manager/share
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisService } from "../common/redis/redis.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
+import { AuditLogService, AUDIT_EVENTS } from "../common/audit-log/audit-log.service";
 import type { CreateVaultItemDto } from "./dto/create-vault-item.dto";
 import type { UpdateVaultItemDto } from "./dto/update-vault-item.dto";
 
@@ -16,6 +17,7 @@ export class VaultService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly entitlements: EntitlementsService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async create(userId: string, dto: CreateVaultItemDto): Promise<VaultItemDto> {
@@ -70,6 +72,7 @@ export class VaultService {
       data: { deletedAt: new Date(), rev: { increment: 1 } },
     });
     await this.notifyChanged(userId);
+    await this.auditLog.record({ actorUserId: userId, eventType: AUDIT_EVENTS.ITEM_DELETED, targetId: itemId });
   }
 
   /**

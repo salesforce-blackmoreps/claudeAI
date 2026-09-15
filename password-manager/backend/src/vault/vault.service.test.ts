@@ -14,7 +14,8 @@ function makeDeps(item: Record<string, unknown> | null) {
   } as any;
   const redis = { publish: jest.fn().mockResolvedValue(1) } as any;
   const entitlements = { assertCanCreateItem: jest.fn().mockResolvedValue(undefined) } as any;
-  return { prisma, redis, entitlements };
+  const auditLog = { record: jest.fn().mockResolvedValue(undefined) } as any;
+  return { prisma, redis, entitlements, auditLog };
 }
 
 const OWNED_ITEM = {
@@ -32,8 +33,8 @@ const OWNED_ITEM = {
 
 describe("VaultService", () => {
   it("creates an item, checks entitlements, and notifies via redis", async () => {
-    const { prisma, redis, entitlements } = makeDeps(null);
-    const service = new VaultService(prisma, redis, entitlements);
+    const { prisma, redis, entitlements, auditLog } = makeDeps(null);
+    const service = new VaultService(prisma, redis, entitlements, auditLog);
 
     const result = await service.create("user-1", {
       type: "login",
@@ -50,22 +51,22 @@ describe("VaultService", () => {
   });
 
   it("denies access to an item owned by a different user", async () => {
-    const { prisma, redis, entitlements } = makeDeps(OWNED_ITEM);
-    const service = new VaultService(prisma, redis, entitlements);
+    const { prisma, redis, entitlements, auditLog } = makeDeps(OWNED_ITEM);
+    const service = new VaultService(prisma, redis, entitlements, auditLog);
 
     await expect(service.get("someone-else", "item-1")).rejects.toThrow(ForbiddenException);
   });
 
   it("throws NotFound for a nonexistent item", async () => {
-    const { prisma, redis, entitlements } = makeDeps(null);
-    const service = new VaultService(prisma, redis, entitlements);
+    const { prisma, redis, entitlements, auditLog } = makeDeps(null);
+    const service = new VaultService(prisma, redis, entitlements, auditLog);
 
     await expect(service.get("user-1", "missing")).rejects.toThrow(NotFoundException);
   });
 
   it("rejects an update whose expectedRev is stale", async () => {
-    const { prisma, redis, entitlements } = makeDeps(OWNED_ITEM);
-    const service = new VaultService(prisma, redis, entitlements);
+    const { prisma, redis, entitlements, auditLog } = makeDeps(OWNED_ITEM);
+    const service = new VaultService(prisma, redis, entitlements, auditLog);
 
     await expect(
       service.update("user-1", "item-1", {
@@ -77,8 +78,8 @@ describe("VaultService", () => {
   });
 
   it("applies an update and bumps rev when expectedRev matches", async () => {
-    const { prisma, redis, entitlements } = makeDeps(OWNED_ITEM);
-    const service = new VaultService(prisma, redis, entitlements);
+    const { prisma, redis, entitlements, auditLog } = makeDeps(OWNED_ITEM);
+    const service = new VaultService(prisma, redis, entitlements, auditLog);
 
     const result = await service.update("user-1", "item-1", {
       encryptedData: "new",
@@ -91,8 +92,8 @@ describe("VaultService", () => {
   });
 
   it("soft-deletes an owned item", async () => {
-    const { prisma, redis, entitlements } = makeDeps(OWNED_ITEM);
-    const service = new VaultService(prisma, redis, entitlements);
+    const { prisma, redis, entitlements, auditLog } = makeDeps(OWNED_ITEM);
+    const service = new VaultService(prisma, redis, entitlements, auditLog);
 
     await service.delete("user-1", "item-1");
 

@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisService } from "../common/redis/redis.service";
+import { AuditLogService, AUDIT_EVENTS } from "../common/audit-log/audit-log.service";
 import { VAULT_CHANGED_CHANNEL_PREFIX } from "../vault/vault.service";
 import type { CreateShareDto } from "./dto/create-share.dto";
 import type { RotateItemKeyDto } from "./dto/rotate-item-key.dto";
@@ -10,6 +11,7 @@ export class SharingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async listShares(userId: string, itemId: string) {
@@ -52,6 +54,12 @@ export class SharingService {
         });
 
     await this.notifyChanged(dto.recipientUserId);
+    await this.auditLog.record({
+      actorUserId: userId,
+      eventType: AUDIT_EVENTS.SHARE_GRANTED,
+      targetId: itemId,
+      metadata: { recipientUserId: dto.recipientUserId, role: dto.role },
+    });
     return share;
   }
 
@@ -72,6 +80,12 @@ export class SharingService {
     }
     await this.prisma.share.update({ where: { id: shareId }, data: { revokedAt: new Date() } });
     await this.notifyChanged(share.recipientUserId);
+    await this.auditLog.record({
+      actorUserId: userId,
+      eventType: AUDIT_EVENTS.SHARE_REVOKED,
+      targetId: itemId,
+      metadata: { recipientUserId: share.recipientUserId },
+    });
   }
 
   /**
@@ -120,6 +134,13 @@ export class SharingService {
       for (const share of activeShares) {
         if (share.id !== dto.revokeShareId) await this.notifyChanged(share.recipientUserId);
       }
+
+      await this.auditLog.record({
+        actorUserId: userId,
+        eventType: AUDIT_EVENTS.SHARE_KEY_ROTATED,
+        targetId: itemId,
+        metadata: { revokedRecipientUserId: revoked.recipientUserId },
+      });
 
       return updatedItem;
     });

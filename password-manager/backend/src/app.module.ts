@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { HealthController } from "./health.controller";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./common/redis/redis.module";
+import { AuditLogModule } from "./common/audit-log/audit-log.module";
 import { AuthModule } from "./auth/auth.module";
 import { DevicesModule } from "./devices/devices.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
@@ -20,6 +21,7 @@ import { BillingModule } from "./billing/billing.module";
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
     RedisModule,
+    AuditLogModule,
     AuthModule,
     DevicesModule,
     EntitlementsModule,
