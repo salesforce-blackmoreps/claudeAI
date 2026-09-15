@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Password Manager",
+  "version": "0.1.0",
+  "description": "Zero-knowledge password manager with team sharing and passkey support.",
+  "action": {
+    "default_popup": "src/popup/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "permissions": ["storage", "alarms", "scripting"],
+  "host_permissions": [],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

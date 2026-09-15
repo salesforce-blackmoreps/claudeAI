@@ -1,0 +1,190 @@
+// Prisma schema — the relational backbone of the sharing/ACL/entitlement model.
+// See docs/crypto-architecture.md for what each encrypted_* column actually contains
+// and why the server never decrypts it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VaultItemType {
+  login
+  passkey
+  note
+}
+
+enum TeamMemberRole {
+  owner
+  admin
+  member
+}
+
+enum TeamMemberStatus {
+  pending
+  active
+  removed
+}
+
+enum ShareRole {
+  viewer
+  editor
+}
+
+enum PlanTier {
+  free
+  team_5
+  team_20
+  team_100
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  canceled
+  over_limit
+}
+
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  masterPasswordHash    String // server-side re-hash of the client-derived auth value
+  kdfType               String    @default("argon2id")
+  kdfParams             Json
+  kdfSalt               String
+  encryptedVaultKey     String // Symmetric Vault Key, wrapped under the Stretched Master Key
+  publicKey             String // EC P-256 public key, stored in the clear
+  encryptedPrivateKey   String // EC P-256 private key, wrapped under the Symmetric Vault Key
+  mfaSecretEncrypted    String?
+  mfaEnabled            Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  devices               Device[]
+  ownedVaultItems        VaultItem[]        @relation("VaultItemOwner")
+  ownedTeams             Team[]             @relation("TeamOwner")
+  teamMemberships        TeamMember[]
+  sharesReceived         Share[]            @relation("ShareRecipient")
+  sharesGranted          Share[]            @relation("ShareGrantedBy")
+  auditLogEntries        AuditLogEntry[]
+}
+
+model Device {
+  id                    String    @id @default(uuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  platform              String
+  refreshTokenFamilyId  String    @unique
+  lastSeenAt            DateTime  @default(now())
+  createdAt             DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model VaultItem {
+  id                 String        @id @default(uuid())
+  ownerUserId        String?
+  owner              User?         @relation("VaultItemOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerTeamId        String?
+  ownerTeam          Team?         @relation(fields: [ownerTeamId], references: [id], onDelete: Cascade)
+  type               VaultItemType
+  encryptedData      String // AES-256-GCM ciphertext of all sensitive fields
+  encryptedItemKey   String // Item Key wrapped under the owner's Vault Key
+  folderId           String?
+  rev                Int           @default(1)
+  deletedAt          DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  shares             Share[]
+
+  @@index([ownerUserId, updatedAt])
+  @@index([ownerTeamId, updatedAt])
+}
+
+model Team {
+  id               String       @id @default(uuid())
+  name             String
+  ownerUserId      String
+  owner            User         @relation("TeamOwner", fields: [ownerUserId], references: [id])
+  stripeCustomerId String?
+  createdAt        DateTime     @default(now())
+
+  members          TeamMember[]
+  vaultItems       VaultItem[]
+  subscription     Subscription?
+  auditLogEntries  AuditLogEntry[]
+}
+
+model TeamMember {
+  id         String            @id @default(uuid())
+  teamId     String
+  team       Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       TeamMemberRole    @default(member)
+  status     TeamMemberStatus  @default(pending)
+  invitedAt  DateTime          @default(now())
+  joinedAt   DateTime?
+
+  @@unique([teamId, userId])
+  @@index([teamId, status])
+}
+
+model Share {
+  id                             String     @id @default(uuid())
+  vaultItemId                    String
+  vaultItem                      VaultItem  @relation(fields: [vaultItemId], references: [id], onDelete: Cascade)
+  recipientUserId                String
+  recipient                      User       @relation("ShareRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  encryptedItemKeyForRecipient    String // Item Key wrapped via ECIES for this recipient's public key
+  role                            ShareRole  @default(viewer)
+  grantedByUserId                 String
+  grantedBy                       User       @relation("ShareGrantedBy", fields: [grantedByUserId], references: [id])
+  createdAt                       DateTime   @default(now())
+  revokedAt                       DateTime?
+
+  @@unique([vaultItemId, recipientUserId])
+  @@index([recipientUserId, revokedAt])
+}
+
+model Subscription {
+  id                   String              @id @default(uuid())
+  teamId               String              @unique
+  team                 Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  stripeSubscriptionId String?             @unique
+  tier                 PlanTier            @default(free)
+  status               SubscriptionStatus  @default(active)
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+}
+
+// Single source of truth for tier limits at the DB level, mirrors
+// shared/src/constants/plan-limits.ts so limits can be tuned without a deploy.
+model PlanLimitConfig {
+  tier              PlanTier @id
+  maxItemsPerUser   Int
+  maxShareMembers   Int
+  maxTeamMembers    Int
+}
+
+// Append-only. Metadata only — never decrypted vault content. See invariant #3.
+model AuditLogEntry {
+  id            String    @id @default(uuid())
+  actorUserId   String?
+  actor         User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  teamId        String?
+  team          Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  eventType     String
+  targetId      String?
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([teamId, createdAt])
+}
