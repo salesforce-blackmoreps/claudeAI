@@ -2,6 +2,9 @@ import { Type } from "class-transformer";
 import { IsEmail, IsIn, IsInt, IsString, Min, ValidateNested } from "class-validator";
 
 class KdfParamsDto {
+  @IsIn(["argon2id"])
+  type!: "argon2id";
+
   @IsInt()
   @Min(16384)
   memoryKib!: number;
