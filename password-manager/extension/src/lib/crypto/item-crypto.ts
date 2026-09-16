@@ -15,11 +15,26 @@ export async function encryptItemFields<T extends object>(
   vaultKeyRaw: Uint8Array,
   fields: T,
 ): Promise<EncryptedItemEnvelope> {
+  const { encryptedData, encryptedItemKey } = await encryptItemFieldsWithFreshKey(vaultKeyRaw, fields);
+  return { encryptedData, encryptedItemKey };
+}
+
+/**
+ * Same as encryptItemFields, but also returns the fresh raw Item Key —
+ * needed when rotating a shared item's key (revoking an editor), where the
+ * caller must also re-wrap that same key for every remaining recipient via
+ * wrapItemKeyForRecipient. See sharing revocation rules in
+ * docs/crypto-architecture.md and invariant #5.
+ */
+export async function encryptItemFieldsWithFreshKey<T extends object>(
+  vaultKeyRaw: Uint8Array,
+  fields: T,
+): Promise<EncryptedItemEnvelope & { itemKeyRaw: Uint8Array }> {
   const itemKey = randomBytes(32);
   const plaintext = utf8ToBytes(JSON.stringify(fields));
   const encryptedData = await aesGcmEncrypt(itemKey, plaintext);
   const encryptedItemKey = await aesGcmEncrypt(vaultKeyRaw, itemKey);
-  return { encryptedData, encryptedItemKey };
+  return { encryptedData, encryptedItemKey, itemKeyRaw: itemKey };
 }
 
 export async function decryptItemFields<T = Record<string, unknown>>(

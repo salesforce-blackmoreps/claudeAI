@@ -164,7 +164,7 @@ export interface ShareDto {
   encryptedItemKeyForRecipient: string;
   role: "viewer" | "editor";
   createdAt: string;
-  recipient: { id: string; email: string };
+  recipient: { id: string; email: string; publicKey: string };
 }
 
 export function listShares(accessToken: string, itemId: string): Promise<ShareDto[]> {
@@ -187,6 +187,22 @@ export function revokeShare(accessToken: string, itemId: string, shareId: string
   return request(`/vault/items/${itemId}/shares/${shareId}`, {
     method: "DELETE",
     headers: authHeaders(accessToken),
+  });
+}
+
+export interface RotateItemKeyBody {
+  encryptedData: string;
+  encryptedItemKey: string;
+  expectedRev: number;
+  revokeShareId: string;
+  remainingShares: { shareId: string; encryptedItemKeyForRecipient: string }[];
+}
+
+export function rotateItemKey(accessToken: string, itemId: string, body: RotateItemKeyBody): Promise<VaultItemDto> {
+  return request(`/vault/items/${itemId}/rotate-key`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(body),
   });
 }
 

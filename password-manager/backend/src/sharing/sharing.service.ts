@@ -18,7 +18,7 @@ export class SharingService {
     await this.assertIsOwner(userId, itemId);
     return this.prisma.share.findMany({
       where: { vaultItemId: itemId, revokedAt: null },
-      include: { recipient: { select: { id: true, email: true } } },
+      include: { recipient: { select: { id: true, email: true, publicKey: true } } },
       orderBy: { createdAt: "asc" },
     });
   }
