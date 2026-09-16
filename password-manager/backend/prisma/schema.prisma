@@ -121,17 +121,24 @@ model Team {
 }
 
 model TeamMember {
-  id         String            @id @default(uuid())
-  teamId     String
-  team       Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role       TeamMemberRole    @default(member)
-  status     TeamMemberStatus  @default(pending)
-  invitedAt  DateTime          @default(now())
-  joinedAt   DateTime?
+  id          String            @id @default(uuid())
+  teamId      String
+  team        Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  // Exactly one of (userId, inviteEmail) is set at any time: userId once the
+  // invitee has an account, inviteEmail while they've been invited by
+  // address but haven't signed up yet. AuthService.signup() resolves a
+  // matching inviteEmail row to the new userId (and clears inviteEmail) the
+  // moment that address registers.
+  userId      String?
+  user        User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inviteEmail String?
+  role        TeamMemberRole    @default(member)
+  status      TeamMemberStatus  @default(pending)
+  invitedAt   DateTime          @default(now())
+  joinedAt    DateTime?
 
   @@unique([teamId, userId])
+  @@unique([teamId, inviteEmail])
   @@index([teamId, status])
 }
 

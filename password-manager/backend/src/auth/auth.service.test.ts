@@ -5,7 +5,11 @@ import { AuthService } from "./auth.service";
 function makeDeps(user: Record<string, unknown> | null) {
   const redisStore = new Map<string, string>();
   const prisma = {
-    user: { findUnique: jest.fn().mockResolvedValue(user) },
+    user: {
+      findUnique: jest.fn().mockResolvedValue(user),
+      create: jest.fn(),
+    },
+    teamMember: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   } as any;
   const redis = {
     get: jest.fn().mockImplementation((key: string) => Promise.resolve(redisStore.get(key) ?? null)),
@@ -138,5 +142,46 @@ describe("AuthService login timing-safety (email enumeration)", () => {
     // Argon2id verify, so neither should be a tiny fraction of the other.
     const ratio = Math.max(wrongPasswordMs, noSuchUserMs) / Math.max(Math.min(wrongPasswordMs, noSuchUserMs), 1);
     expect(ratio).toBeLessThan(5);
+  });
+});
+
+describe("AuthService signup team-invite linking", () => {
+  beforeAll(() => {
+    process.env.SERVER_SECRET_KEY = "dGVzdC1wZXBwZXItMzItYnl0ZXMtbG9uZy1rZXkh";
+  });
+
+  const SIGNUP_DTO = {
+    email: "newperson@example.com",
+    masterPasswordHash: "client-derived-hash",
+    kdfType: "argon2id" as const,
+    kdfParams: { type: "argon2id" as const, memoryKib: 65536, iterations: 3, parallelism: 4 },
+    kdfSalt: "salt",
+    encryptedVaultKey: "evk",
+    publicKey: "pub",
+    encryptedPrivateKey: "epk",
+    deviceName: "d",
+    devicePlatform: "p",
+  };
+
+  it("links any pending email-only team invites to the newly created account", async () => {
+    const deps = makeDeps(null);
+    deps.prisma.user.create.mockResolvedValue({
+      id: "new-user-1",
+      email: SIGNUP_DTO.email,
+      encryptedVaultKey: "evk",
+      encryptedPrivateKey: "epk",
+      publicKey: "pub",
+      kdfType: "argon2id",
+      kdfParams: SIGNUP_DTO.kdfParams,
+      kdfSalt: "salt",
+    });
+    const service = new AuthService(deps.prisma, deps.redis, deps.devices, deps.tokens, deps.mfa, deps.auditLog);
+
+    await service.signup(SIGNUP_DTO);
+
+    expect(deps.prisma.teamMember.updateMany).toHaveBeenCalledWith({
+      where: { inviteEmail: SIGNUP_DTO.email },
+      data: { userId: "new-user-1", inviteEmail: null },
+    });
   });
 });

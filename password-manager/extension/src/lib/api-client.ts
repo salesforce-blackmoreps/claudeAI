@@ -227,10 +227,12 @@ export interface TeamDto {
 export interface TeamMemberDto {
   id: string;
   teamId: string;
-  userId: string;
+  userId: string | null;
+  inviteEmail: string | null;
   role: "owner" | "admin" | "member";
   status: "pending" | "active" | "removed";
-  user: { id: string; email: string; publicKey: string };
+  /** Null for an invite sent to an email that hasn't signed up yet — use inviteEmail to display it instead. */
+  user: { id: string; email: string; publicKey: string } | null;
 }
 
 export function createTeam(accessToken: string, name: string): Promise<TeamDto> {
@@ -255,6 +257,11 @@ export function acceptTeamInvite(accessToken: string, teamId: string): Promise<T
 
 export function removeTeamMember(accessToken: string, teamId: string, userId: string): Promise<void> {
   return request(`/teams/${teamId}/members/${userId}`, { method: "DELETE", headers: authHeaders(accessToken) });
+}
+
+/** Cancels an invite sent to an email that hasn't signed up yet — keyed by the TeamMember row's own id (no userId exists yet). */
+export function cancelPendingInvite(accessToken: string, teamId: string, memberId: string): Promise<void> {
+  return request(`/teams/${teamId}/invites/${memberId}`, { method: "DELETE", headers: authHeaders(accessToken) });
 }
 
 export interface MyInviteDto {

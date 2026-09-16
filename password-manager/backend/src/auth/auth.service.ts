@@ -74,6 +74,15 @@ export class AuthService {
       },
     });
 
+    // Resolve any team invites that were sent to this address before the
+    // person had an account (see TeamMember.inviteEmail in schema.prisma).
+    // They still land in "pending", same as any other invite — signing up
+    // just makes the invite theirs to accept.
+    await this.prisma.teamMember.updateMany({
+      where: { inviteEmail: user.email },
+      data: { userId: user.id, inviteEmail: null },
+    });
+
     await this.auditLog.record({ actorUserId: user.id, eventType: AUDIT_EVENTS.SIGNUP, targetId: user.id });
 
     return this.establishSession(user.id, dto.deviceName, dto.devicePlatform, {

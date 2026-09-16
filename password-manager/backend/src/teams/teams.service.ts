@@ -34,32 +34,73 @@ export class TeamsService {
     await this.assertIsAdminOrOwner(inviterId, teamId);
 
     const invitee = await this.prisma.user.findUnique({ where: { email } });
-    if (!invitee) {
-      throw new NotFoundException("No account found for that email. Ask them to sign up, then invite them again.");
+    if (invitee) {
+      const existing = await this.prisma.teamMember.findUnique({
+        where: { teamId_userId: { teamId, userId: invitee.id } },
+      });
+      if (existing && existing.status !== "removed") {
+        throw new ConflictException("This person is already invited to or a member of this team.");
+      }
+      const member = existing
+        ? await this.prisma.teamMember.update({
+            where: { id: existing.id },
+            data: { status: "pending", invitedAt: new Date(), joinedAt: null, inviteEmail: null },
+          })
+        : await this.prisma.teamMember.create({
+            data: { teamId, userId: invitee.id, role: "member", status: "pending" },
+          });
+
+      await this.auditLog.record({
+        actorUserId: inviterId,
+        teamId,
+        eventType: AUDIT_EVENTS.TEAM_MEMBER_INVITED,
+        targetId: invitee.id,
+      });
+      return member;
     }
 
-    const existing = await this.prisma.teamMember.findUnique({
-      where: { teamId_userId: { teamId, userId: invitee.id } },
+    // No account yet: store a pending invite keyed by email instead of
+    // rejecting outright. AuthService.signup() links it to the new user's id
+    // the moment they register with this exact address — see the field
+    // comment on TeamMember.inviteEmail in schema.prisma.
+    const existingByEmail = await this.prisma.teamMember.findUnique({
+      where: { teamId_inviteEmail: { teamId, inviteEmail: email } },
     });
-    if (existing && existing.status !== "removed") {
-      throw new ConflictException("This person is already invited to or a member of this team.");
+    if (existingByEmail && existingByEmail.status !== "removed") {
+      throw new ConflictException("This person is already invited to this team.");
     }
-    const member = existing
+    const member = existingByEmail
       ? await this.prisma.teamMember.update({
-          where: { id: existing.id },
+          where: { id: existingByEmail.id },
           data: { status: "pending", invitedAt: new Date(), joinedAt: null },
         })
       : await this.prisma.teamMember.create({
-          data: { teamId, userId: invitee.id, role: "member", status: "pending" },
+          data: { teamId, inviteEmail: email, role: "member", status: "pending" },
         });
 
     await this.auditLog.record({
       actorUserId: inviterId,
       teamId,
       eventType: AUDIT_EVENTS.TEAM_MEMBER_INVITED,
-      targetId: invitee.id,
+      metadata: { inviteEmail: email },
     });
     return member;
+  }
+
+  /** Cancels a pending invite for someone who hasn't signed up yet (no userId to remove by). */
+  async cancelPendingEmailInvite(teamId: string, actorId: string, memberId: string): Promise<void> {
+    await this.assertIsAdminOrOwner(actorId, teamId);
+    const member = await this.prisma.teamMember.findUnique({ where: { id: memberId } });
+    if (!member || member.teamId !== teamId || member.userId !== null || member.status === "removed") {
+      throw new NotFoundException("Pending invite not found");
+    }
+    await this.prisma.teamMember.update({ where: { id: memberId }, data: { status: "removed" } });
+    await this.auditLog.record({
+      actorUserId: actorId,
+      teamId,
+      eventType: AUDIT_EVENTS.TEAM_MEMBER_REMOVED,
+      metadata: { inviteEmail: member.inviteEmail },
+    });
   }
 
   async acceptInvite(userId: string, teamId: string) {

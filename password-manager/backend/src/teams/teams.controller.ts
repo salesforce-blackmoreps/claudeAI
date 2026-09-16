@@ -46,4 +46,10 @@ export class TeamsController {
     await this.teams.removeMember(teamId, req.userId, userId);
     return { removed: true };
   }
+
+  @Delete(":teamId/invites/:memberId")
+  async cancelInvite(@Req() req: AuthenticatedRequest, @Param("teamId") teamId: string, @Param("memberId") memberId: string) {
+    await this.teams.cancelPendingEmailInvite(teamId, req.userId, memberId);
+    return { removed: true };
+  }
 }

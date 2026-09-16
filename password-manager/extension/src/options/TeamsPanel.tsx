@@ -4,6 +4,7 @@ import {
   getTeam,
   inviteTeamMember,
   removeTeamMember,
+  cancelPendingInvite,
   acceptTeamInvite,
   listMyInvites,
   listMyTeams,
@@ -106,6 +107,14 @@ export function TeamsPanel() {
     });
   }
 
+  async function handleCancelInvite(teamId: string, memberId: string) {
+    await withToken(async (token) => {
+      await cancelPendingInvite(token, teamId, memberId);
+      const { members } = await getTeam(token, teamId);
+      setMembers(members);
+    });
+  }
+
   async function handleUpgrade(teamId: string, tier: "team_5" | "team_20" | "team_100") {
     const result = await withToken((token) => createCheckoutSession(token, teamId, tier));
     if (result) chrome.tabs.create({ url: result.url });
@@ -153,10 +162,21 @@ export function TeamsPanel() {
                   <ul>
                     {members.map((member) => (
                       <li key={member.id} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        {member.user.email} — {member.role} ({member.status})
-                        {member.role !== "owner" && (
-                          <button type="button" disabled={busy} onClick={() => handleRemoveMember(membership.teamId, member.userId)}>
+                        {member.user ? (
+                          <>
+                            {member.user.email} — {member.role} ({member.status})
+                          </>
+                        ) : (
+                          <>{member.inviteEmail} — invited, hasn't signed up yet</>
+                        )}
+                        {member.user && member.role !== "owner" && (
+                          <button type="button" disabled={busy} onClick={() => handleRemoveMember(membership.teamId, member.userId!)}>
                             Remove
+                          </button>
+                        )}
+                        {!member.user && (
+                          <button type="button" disabled={busy} onClick={() => handleCancelInvite(membership.teamId, member.id)}>
+                            Cancel invite
                           </button>
                         )}
                       </li>
