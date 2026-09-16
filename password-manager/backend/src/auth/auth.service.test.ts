@@ -82,3 +82,61 @@ describe("AuthService login lockout", () => {
     ).rejects.toThrow("Invalid email or master password");
   });
 });
+
+describe("AuthService login timing-safety (email enumeration)", () => {
+  beforeAll(() => {
+    process.env.SERVER_SECRET_KEY = "dGVzdC1wZXBwZXItMzItYnl0ZXMtbG9uZy1rZXkh";
+  });
+
+  it("rejects login for a nonexistent email with the same generic message", async () => {
+    const deps = makeDeps(null);
+    const service = new AuthService(deps.prisma, deps.redis, deps.devices, deps.tokens, deps.mfa, deps.auditLog);
+
+    await expect(
+      service.login({ email: "nobody@example.com", masterPasswordHash: "whatever", deviceName: "d", devicePlatform: "p" }),
+    ).rejects.toThrow("Invalid email or master password");
+  });
+
+  it("takes comparable time whether the email exists (wrong password) or doesn't exist at all", async () => {
+    const correctHash = await argon2.hash("correct-hash");
+    const existingUserDeps = makeDeps({ ...BASE_USER, masterPasswordHash: correctHash });
+    const existingUserService = new AuthService(
+      existingUserDeps.prisma,
+      existingUserDeps.redis,
+      existingUserDeps.devices,
+      existingUserDeps.tokens,
+      existingUserDeps.mfa,
+      existingUserDeps.auditLog,
+    );
+    const noUserDeps = makeDeps(null);
+    const noUserService = new AuthService(
+      noUserDeps.prisma,
+      noUserDeps.redis,
+      noUserDeps.devices,
+      noUserDeps.tokens,
+      noUserDeps.mfa,
+      noUserDeps.auditLog,
+    );
+
+    async function timeLogin(service: AuthService, email: string): Promise<number> {
+      const start = performance.now();
+      await service
+        .login({ email, masterPasswordHash: "wrong", deviceName: "d", devicePlatform: "p" })
+        .catch(() => undefined);
+      return performance.now() - start;
+    }
+
+    // Warm up (module-level dummy hash / any lazy init) before measuring.
+    await timeLogin(noUserService, "warmup@example.com");
+    await timeLogin(existingUserService, "alice@example.com");
+
+    const wrongPasswordMs = await timeLogin(existingUserService, "alice@example.com");
+    const noSuchUserMs = await timeLogin(noUserService, "nobody-at-all@example.com");
+
+    // Before the fix, the no-such-user path skipped Argon2 entirely and
+    // was ~1-2 orders of magnitude faster. Both should now do a real
+    // Argon2id verify, so neither should be a tiny fraction of the other.
+    const ratio = Math.max(wrongPasswordMs, noSuchUserMs) / Math.max(Math.min(wrongPasswordMs, noSuchUserMs), 1);
+    expect(ratio).toBeLessThan(5);
+  });
+});

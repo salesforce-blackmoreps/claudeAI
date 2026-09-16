@@ -24,6 +24,18 @@ const LOGIN_TICKET_TTL_SECONDS = 5 * 60;
 const LOGIN_LOCKOUT_THRESHOLD = 10;
 const LOGIN_LOCKOUT_WINDOW_SECONDS = 15 * 60;
 
+/**
+ * Computed once and cached: a valid Argon2id hash of a fixed, meaningless
+ * value, verified against on every login for a nonexistent email so that
+ * path pays the same Argon2id cost as a real account with a wrong password.
+ * Without this, `argon2.verify` only ever runs when the account exists,
+ * and Argon2id's deliberately-slow-by-design cost (tens–hundreds of ms)
+ * makes that a large, reliably measurable timing side-channel for account
+ * enumeration — undermining the same enumeration-resistance `kdfLookup`
+ * below goes out of its way to provide on this same login surface.
+ */
+const DUMMY_PASSWORD_HASH_PROMISE = argon2.hash("timing-safety-dummy-hash-not-a-real-account");
+
 interface LoginTicketPayload {
   userId: string;
   deviceName: string;
@@ -98,7 +110,11 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (!user || !(await argon2.verify(user.masterPasswordHash, dto.masterPasswordHash))) {
+    // Always run a real Argon2id verify, even when the account doesn't
+    // exist — see DUMMY_PASSWORD_HASH_PROMISE above for why.
+    const hashToVerify = user ? user.masterPasswordHash : await DUMMY_PASSWORD_HASH_PROMISE;
+    const passwordMatches = await argon2.verify(hashToVerify, dto.masterPasswordHash);
+    if (!user || !passwordMatches) {
       await this.redis.set(lockoutKey, String(failedAttempts + 1), "EX", LOGIN_LOCKOUT_WINDOW_SECONDS);
       await this.auditLog.record({
         actorUserId: user?.id ?? null,
