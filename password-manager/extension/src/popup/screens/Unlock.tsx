@@ -4,6 +4,7 @@ import { bytesToBase64 } from "../../lib/crypto/encoding";
 import { refreshSession, ApiError } from "../../lib/api-client";
 import { updateTokens, clearSession, type StoredSession } from "../../lib/storage/local-store";
 import { sendToBackground } from "../../background/messages";
+import { NoRecoveryNotice } from "../components/NoRecoveryNotice";
 
 interface UnlockProps {
   session: StoredSession;
@@ -73,6 +74,7 @@ export function Unlock({ session, onUnlocked, onSessionInvalid }: UnlockProps) {
       <button type="submit" disabled={busy}>
         {busy ? "Unlocking…" : "Unlock"}
       </button>
+      <NoRecoveryNotice />
     </form>
   );
 }

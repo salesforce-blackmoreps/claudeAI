@@ -17,6 +17,7 @@ export function Signup({ onSignedUp, onSwitchToLogin }: SignupProps) {
   const [email, setEmail] = useState("");
   const [masterPassword, setMasterPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [acknowledgedNoRecovery, setAcknowledgedNoRecovery] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -30,6 +31,10 @@ export function Signup({ onSignedUp, onSwitchToLogin }: SignupProps) {
     }
     if (masterPassword !== confirmPassword) {
       setError("Passwords do not match.");
+      return;
+    }
+    if (!acknowledgedNoRecovery) {
+      setError("Please confirm you understand a forgotten master password can't be recovered.");
       return;
     }
 
@@ -112,11 +117,20 @@ export function Signup({ onSignedUp, onSwitchToLogin }: SignupProps) {
           style={{ display: "block", width: "100%" }}
         />
       </label>
-      <p style={{ fontSize: 12, color: "#666" }}>
-        Your master password is never sent to our servers. If you forget it, your vault cannot be recovered.
-      </p>
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12, color: "#666" }}>
+        <input
+          type="checkbox"
+          checked={acknowledgedNoRecovery}
+          onChange={(e) => setAcknowledgedNoRecovery(e.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <span>
+          Your master password is never sent to our servers. If you forget it, there is no reset and your vault
+          cannot be recovered — I understand this and have saved my master password somewhere safe.
+        </span>
+      </label>
       {error && <p style={{ color: "crimson", fontSize: 13 }}>{error}</p>}
-      <button type="submit" disabled={busy}>
+      <button type="submit" disabled={busy || !acknowledgedNoRecovery}>
         {busy ? "Creating account…" : "Sign up"}
       </button>
       <button type="button" onClick={onSwitchToLogin} disabled={busy}>

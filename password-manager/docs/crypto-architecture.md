@@ -134,6 +134,33 @@ masterPassword (never leaves the client, never stored, never logged)
 - Any vault item's plaintext fields
 - Any private key in plaintext (EC user keypair or passkey keypairs)
 
+## Account recovery policy
+
+A forgotten master password is unrecoverable, by design and without exception. The
+Symmetric Vault Key is only ever wrapped under a key derived from the master
+password (see "Key hierarchy" above); the server never stores or sees the master
+password, the Master Key, or the unwrapped Vault Key, so it has no material from
+which to reconstruct any of them. There is deliberately no server-side "reset
+password" flow — any such flow would necessarily require the server to either hold
+recoverable key material or force a re-encryption the server itself could observe,
+both of which break the zero-knowledge goal at the top of this document.
+
+Concretely, this means:
+- No backend endpoint resets or recovers a master password (`auth.controller.ts` has
+  no such route, intentionally).
+- The only path after a forgotten master password is creating a new account; the old
+  vault's contents cannot be migrated over, since they can only ever be decrypted
+  with the forgotten password.
+- The client UI must disclose this tradeoff before an account is created (an
+  explicit, required acknowledgment on signup, not passive fine print) and must offer
+  an explanation of *why* on every screen where a wrong master password is possible
+  (login, unlock) — see `extension/src/popup/components/NoRecoveryNotice.tsx`.
+
+If a lower-friction recovery mechanism is ever wanted (e.g. an optional recovery key
+or trusted-contact-based social recovery, as some competitors offer), it is a new,
+opt-in, clearly-labeled key-escrow feature layered on top of this model — never a
+silent weakening of it. Out of scope for v1.
+
 ## Algorithm agility
 
 `kdf_type` and `kdf_params` are stored per-user (not globally hardcoded) specifically

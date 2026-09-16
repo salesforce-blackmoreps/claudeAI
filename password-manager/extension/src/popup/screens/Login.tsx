@@ -6,6 +6,7 @@ import { fetchKdfParams, login, verifyMfa, ApiError } from "../../lib/api-client
 import { saveSession } from "../../lib/storage/local-store";
 import { getDeviceInfo } from "../../lib/device-info";
 import { sendToBackground } from "../../background/messages";
+import { NoRecoveryNotice } from "../components/NoRecoveryNotice";
 
 interface LoginProps {
   onLoggedIn: () => void;
@@ -137,6 +138,7 @@ export function Login({ onLoggedIn, onSwitchToSignup }: LoginProps) {
       <button type="button" onClick={onSwitchToSignup} disabled={busy}>
         Need an account? Sign up
       </button>
+      <NoRecoveryNotice />
     </form>
   );
 }
