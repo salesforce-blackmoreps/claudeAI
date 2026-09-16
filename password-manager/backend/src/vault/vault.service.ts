@@ -3,7 +3,7 @@ import type { VaultItem } from "@prisma/client";
 import type { VaultItemDto, VaultSyncResponseDto } from "@password-manager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisService } from "../common/redis/redis.service";
-import { EntitlementsService } from "../entitlements/entitlements.service";
+import { EntitlementsService, ItemLimitExceededError } from "../entitlements/entitlements.service";
 import { AuditLogService, AUDIT_EVENTS } from "../common/audit-log/audit-log.service";
 import type { CreateVaultItemDto } from "./dto/create-vault-item.dto";
 import type { UpdateVaultItemDto } from "./dto/update-vault-item.dto";
@@ -21,20 +21,35 @@ export class VaultService {
   ) {}
 
   async create(userId: string, dto: CreateVaultItemDto): Promise<VaultItemDto> {
-    // Belt-and-suspenders: ItemCreationEntitlementGuard already checked this
-    // at the route level, but re-check here too in case this service is ever
-    // called from another path (e.g. an import flow in a later phase).
-    await this.entitlements.assertCanCreateItem(userId);
-
-    const item = await this.prisma.vaultItem.create({
-      data: {
-        ownerUserId: userId,
-        type: dto.type,
-        encryptedData: dto.encryptedData,
-        encryptedItemKey: dto.encryptedItemKey,
-        folderId: dto.folderId,
-      },
-    });
+    // ItemCreationEntitlementGuard already checked this at the route level,
+    // but that's a plain COUNT with no lock — concurrent requests can each
+    // pass it before any of their inserts land, letting a free-tier account
+    // blow well past the cap (confirmed via a concurrency load test: 20
+    // parallel creates against a 10-item cap produced 19 items). The
+    // authoritative check has to happen here, serialized per-user via a
+    // Postgres advisory lock inside the same transaction as the insert, so
+    // the count each request sees reflects every other request's outcome.
+    let item: VaultItem;
+    try {
+      item = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+        await this.entitlements.assertCanCreateItem(userId, tx);
+        return tx.vaultItem.create({
+          data: {
+            ownerUserId: userId,
+            type: dto.type,
+            encryptedData: dto.encryptedData,
+            encryptedItemKey: dto.encryptedItemKey,
+            folderId: dto.folderId,
+          },
+        });
+      });
+    } catch (err) {
+      if (err instanceof ItemLimitExceededError) {
+        throw new ForbiddenException("Item limit reached for your current plan. Upgrade to add more.");
+      }
+      throw err;
+    }
 
     await this.notifyChanged(userId);
     return toDto(item);

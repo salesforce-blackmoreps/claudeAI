@@ -1,6 +1,17 @@
 import { Injectable } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PLAN_LIMITS, PlanLimits, type EntitlementsDto } from "@password-manager/shared";
 import { PrismaService } from "../prisma/prisma.service";
+
+/**
+ * Accepts either the ambient PrismaService or an in-flight transaction
+ * client. Callers that must make a check-then-act sequence race-proof
+ * (e.g. VaultService.create) run the count and the following insert inside
+ * one `$transaction` guarded by a Postgres advisory lock, and pass that
+ * transaction's client through here so the count sees a consistent,
+ * serialized view instead of racing a concurrent request's own count.
+ */
+type Db = PrismaService | Prisma.TransactionClient;
 
 /**
  * The single authoritative source of a user's current usage vs. their plan
@@ -36,17 +47,17 @@ export class EntitlementsService {
     };
   }
 
-  async assertCanCreateItem(userId: string): Promise<void> {
-    const entitlements = await this.getEntitlementsForUser(userId);
-    if (entitlements.currentItemCount >= entitlements.maxItemsPerUser) {
-      throw new ItemLimitExceededError(entitlements.maxItemsPerUser);
+  async assertCanCreateItem(userId: string, db: Db = this.prisma): Promise<void> {
+    const currentItemCount = await db.vaultItem.count({ where: { ownerUserId: userId, deletedAt: null } });
+    if (currentItemCount >= PLAN_LIMITS.free.maxItemsPerUser) {
+      throw new ItemLimitExceededError(PLAN_LIMITS.free.maxItemsPerUser);
     }
   }
 
   /** Direct item sharing is always evaluated against the free tier's share cap for now — see class doc. */
-  async assertCanShareItem(vaultItemId: string): Promise<void> {
+  async assertCanShareItem(vaultItemId: string, db: Db = this.prisma): Promise<void> {
     const limits = PLAN_LIMITS.free;
-    const currentShareCount = await this.prisma.share.count({
+    const currentShareCount = await db.share.count({
       where: { vaultItemId, revokedAt: null },
     });
     if (currentShareCount >= limits.maxShareMembers) {
@@ -54,14 +65,14 @@ export class EntitlementsService {
     }
   }
 
-  async getPlanLimitsForTeam(teamId: string): Promise<PlanLimits> {
-    const subscription = await this.prisma.subscription.findUnique({ where: { teamId } });
+  async getPlanLimitsForTeam(teamId: string, db: Db = this.prisma): Promise<PlanLimits> {
+    const subscription = await db.subscription.findUnique({ where: { teamId } });
     return PLAN_LIMITS[subscription?.tier ?? "free"];
   }
 
-  async assertCanInviteTeamMember(teamId: string): Promise<void> {
-    const limits = await this.getPlanLimitsForTeam(teamId);
-    const currentMemberCount = await this.prisma.teamMember.count({
+  async assertCanInviteTeamMember(teamId: string, db: Db = this.prisma): Promise<void> {
+    const limits = await this.getPlanLimitsForTeam(teamId, db);
+    const currentMemberCount = await db.teamMember.count({
       where: { teamId, status: { in: ["pending", "active"] } },
     });
     if (currentMemberCount >= limits.maxTeamMembers) {

@@ -11,6 +11,11 @@ function makeDeps(item: Record<string, unknown> | null) {
       ),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
+    // create() runs inside $transaction(cb) to serialize the entitlement
+    // check against the insert (see vault.service.ts) — the mock just runs
+    // the callback against this same stub, which also stands in as `tx`.
+    $transaction: jest.fn().mockImplementation((cb) => cb(prisma)),
   } as any;
   const redis = { publish: jest.fn().mockResolvedValue(1) } as any;
   const entitlements = { assertCanCreateItem: jest.fn().mockResolvedValue(undefined) } as any;
@@ -42,7 +47,7 @@ describe("VaultService", () => {
       encryptedItemKey: "enc-key",
     });
 
-    expect(entitlements.assertCanCreateItem).toHaveBeenCalledWith("user-1");
+    expect(entitlements.assertCanCreateItem).toHaveBeenCalledWith("user-1", prisma);
     expect(prisma.vaultItem.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ ownerUserId: "user-1" }) }),
     );
